@@ -55,6 +55,8 @@ class LineDetectionNode(Node):
         # Fit line to top 5 biggest contours
         top_n=5
         lines_info = []
+        xs = []
+        y1 = 0
         for i, contour in enumerate(contours[:top_n]):
             points = contour.reshape(-1, 2)
             [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
@@ -63,6 +65,8 @@ class LineDetectionNode(Node):
             b = vx
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
+            x1 = x0 + (y1-y0)/slope
+            xs.append(abs(x1-img.shape[1]/2))
             lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
 
         mean_error = sum(t[1] for t in lines_info) / len(lines_info)
