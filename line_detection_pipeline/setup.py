@@ -20,8 +20,9 @@ setup(
     # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'line = line_detection_pipeline.line_detection_node:main',
-            'line_listener = line_detection_pipeline.listener:main',
+            f'line = {package_name}.line_detection_node:main',
+            f'line_listener = {package_name}.listener:main',
+            f'line_follower = {package_name}.line_follower_node:main',
         ],
     },
 )
