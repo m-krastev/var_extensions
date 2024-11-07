@@ -2,6 +2,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+import signal
 
 from line_detection_pipeline.constants import CMD_VEL_TOPIC, LINE_DIRECTION_TOPIC
 
