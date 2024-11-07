@@ -45,6 +45,8 @@ class LineDetectionNode(Node):
         # Fit line to top 5 biggest contours
         top_n=5
         lines_info = []
+        xs = []
+        y1 = 0
         for i, contour in enumerate(contours[:top_n]):
             points = contour.reshape(-1, 2)
             [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
@@ -53,27 +55,21 @@ class LineDetectionNode(Node):
             b = vx
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
+            x1 = x0 + (y1-y0)/slope
+            xs.append(abs(x1-img.shape[1]/2))
             lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
         
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
-            max_slope_index = max(range(len(lines_info)), key=lambda i: abs(lines_info[i][0]))
-            max_slope_contour = lines_info[max_slope_index][2]
-            (vx, vy, x0, y0) = lines_info[max_slope_index][3]
+            min_dist_index = np.argmin(xs)
+            min_slope_contour = lines_info[min_dist_index][2]
+            slope = lines_info[min_dist_index][0]
 
-            cv2.drawContours(img, [max_slope_contour], -1, (255, 0, 0), 2)
-            
-            t1 = 1000
-            t2 = -1000
-            x1 = int(x0 + t1 * vx)
-            y1 = int(y0 + t1 * vy)
-            x2 = int(x0 + t2 * vx)
-            y2 = int(y0 + t2 * vy)
+            cv2.drawContours(img, [min_slope_contour], -1, (255, 0, 0), 2)
 
             # Change direction to make the vertical line more vertical 
             direction = Twist()
-            direction.linear.x = float(x2 - x1)
-            direction.angular.z = float(y2 - y1)
+            direction.angular.z = float(abs(slope)/slope)
             self.direction_publisher.publish(direction)
 
 
