@@ -1,5 +1,4 @@
 import sys
-
 import cv2
 import numpy as np
 import rclpy
@@ -26,58 +25,65 @@ class LineDetectionNode(Node):
 
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
-        # Step 1: Preprocessing
-        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+        # Preprocessing
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         bright = cv2.convertScaleAbs(
-            gray, alpha=1.5, beta=0
-        )  # adjust brightness if needed
-        blurred = cv2.GaussianBlur(bright, (5, 5), 0)
+            gray, alpha=1.5, beta=0)
 
-        # Step 2: Edge Detection using Canny
-        edges = cv2.Canny(blurred, 150, 200)
+        # Brigthness Threshold 
+        brightness_threshold = 245
+        _, mask = cv2.threshold(img, brightness_threshold, 255, cv2.THRESH_BINARY)
+        masked_image = cv2.bitwise_and(img, img, mask=mask)
 
-        # Step 3: Line Detection with Hough Transform
-        lines = cv2.HoughLinesP(
-            edges, 1, np.pi / 180, threshold=150, minLineLength=225, maxLineGap=20
-        )
 
-        # Step 4: Filter and Draw Detected Lines
-        if lines is not None:
-            # Find the brightest line that is closest to the vertical center
-            brightest_line = None
-            max_brightness = -1
-            image_center_x = cv_image.shape[1] // 2
+        # Find contours 
+        contours, _ = cv2.findContours(masked_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=len, reverse=True)
+        
+        # Fit line to top 5 biggest contours
+        top_n=5
+        lines_info = []
+        for i, contour in enumerate(contours[:top_n]):
+            points = contour.reshape(-1, 2)
+            [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
+            slope = vy / vx if vx != 0 else float('inf')
+            a = -vy
+            b = vx
+            c = vy * x0 - vx * y0
+            errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
+            lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
+        
+        # Find most vertical line and draw it red
+        if len(lines_info) != 0:
+            max_slope_index = max(range(len(lines_info)), key=lambda i: abs(lines_info[i][0]))
+            max_slope_contour = lines_info[max_slope_index][2]
+            (vx, vy, x0, y0) = lines_info[max_slope_index][3]
 
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                cv2.line(cv_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                line_brightness = (bright[y1, x1] + bright[y2, x2]) / 2
-                line_center_x = (x1 + x2) / 2
+            cv2.drawContours(img, [max_slope_contour], -1, (255, 0, 0), 2)
+            
+            t1 = 1000
+            t2 = -1000
+            x1 = int(x0 + t1 * vx)
+            y1 = int(y0 + t1 * vy)
+            x2 = int(x0 + t2 * vx)
+            y2 = int(y0 + t2 * vy)
 
-                if line_brightness > max_brightness and abs(line_center_x - image_center_x) < 50:
-                    max_brightness = line_brightness
-                    brightest_line = line[0]
+            # Change direction to make the vertical line more vertical 
+            direction = Twist()
+            direction.linear.x = float(x2 - x1)
+            direction.angular.z = float(y2 - y1)
+            self.direction_publisher.publish(direction)
 
-            if brightest_line is not None:
-                x1, y1, x2, y2 = brightest_line
-                # Draw the brightest line in red
-                cv2.line(cv_image, (x1, y1), (x2, y2), (0, 0, 255), 5)
-
-                # Calculate the direction of the line
-                direction = Twist()
-                direction.linear.x = float(x2 - x1)
-                direction.angular.z = float(y2 - y1)
-                self.direction_publisher.publish(direction)
 
         # Convert processed image back to ROS Image message
-        output_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding="bgr8")
+        output_msg = self.bridge.cv2_to_imgmsg(img, encoding="bgr8")
         self.publisher.publish(output_msg)
         self.get_logger().info("Processed and published line-detected image.")
 
         # Display the processed image in a non-blocking OpenCV window
-        cv2.imshow("Processed Image", cv_image)
+        cv2.imshow("Processed Image", img)
 
         # Non-blocking wait for 1 ms to update the window
         cv2.waitKey(10)
