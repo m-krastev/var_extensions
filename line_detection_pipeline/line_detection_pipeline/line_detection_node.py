@@ -35,10 +35,20 @@ class LineDetectionNode(Node):
         # Brigthness Threshold 
         brightness_threshold = 245
         _, mask = cv2.threshold(img, brightness_threshold, 255, cv2.THRESH_BINARY)
+        
+
+        # Assuming masked_image is the image you want to process
+        # Convert the image to grayscale if it is not already
+        if len(mask.shape) == 3:
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+
+        # Ensure the image is in CV_8UC1 format
+        mask = cv2.convertScaleAbs(mask)
+
         masked_image = cv2.bitwise_and(img, img, mask=mask)
 
-
-        # Find contours 
+        # Find contours
+        masked_image = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
         contours, _ = cv2.findContours(masked_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contours = sorted(contours, key=len, reverse=True)
         
@@ -60,7 +70,7 @@ class LineDetectionNode(Node):
             max_slope_index = max(range(len(lines_info)), key=lambda i: abs(lines_info[i][0]))
             max_slope_contour = lines_info[max_slope_index][2]
             (vx, vy, x0, y0) = lines_info[max_slope_index][3]
-
+            slope = lines_info[max_slope_index][0]
             cv2.drawContours(img, [max_slope_contour], -1, (255, 0, 0), 2)
             
             t1 = 1000
@@ -73,7 +83,8 @@ class LineDetectionNode(Node):
             # Change direction to make the vertical line more vertical 
             direction = Twist()
             direction.linear.x = float(x2 - x1)
-            direction.angular.z = float(y2 - y1)
+            direction.angular.z = float(slope)
+            self.logger.info(f"{slope=}")
             self.direction_publisher.publish(direction)
 
 
@@ -82,8 +93,14 @@ class LineDetectionNode(Node):
         self.publisher.publish(output_msg)
         self.get_logger().info("Processed and published line-detected image.")
 
+        # First row: original image and grayscale image
+        # Second row: brightened image and mask
+        first = np.hstack((img, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
+        second = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
+        debug = np.vstack((first, second))
+        debug = cv2.resize(debug, (0, 0), fx=0.7, fy=0.7)
         # Display the processed image in a non-blocking OpenCV window
-        cv2.imshow("Processed Image", img)
+        cv2.imshow("Processed Image", debug)
 
         # Non-blocking wait for 1 ms to update the window
         cv2.waitKey(10)
