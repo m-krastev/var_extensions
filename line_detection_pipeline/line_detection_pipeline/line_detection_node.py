@@ -6,7 +6,7 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from .constants import IMAGE_TOPIC, OUTPUT_TOPIC
+from .constants import LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC
 
 print(sys.version_info)
 
@@ -15,10 +15,10 @@ class LineDetectionNode(Node):
     def __init__(self):
         super().__init__("line_detection_node")
         self.subscription = self.create_subscription(
-            Image, IMAGE_TOPIC, self.process_image_callback, 10
+            Image, RAE_RIGHT_IMAGE_RAW_TOPIC, self.process_image_callback, 10
         )
         self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, 10)
-        self.direction_publisher = self.create_publisher(Twist, "line_direction", 10)
+        self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
@@ -33,7 +33,7 @@ class LineDetectionNode(Node):
             gray, alpha=1.5, beta=0)
 
         # Brigthness Threshold 
-        brightness_threshold = 245
+        brightness_threshold = 235
         _, mask = cv2.threshold(img, brightness_threshold, 255, cv2.THRESH_BINARY)
         
 
@@ -105,12 +105,12 @@ class LineDetectionNode(Node):
         first = np.hstack((img, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
         second = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
         debug = np.vstack((first, second))
-        debug = cv2.resize(debug, (0, 0), fx=0.7, fy=0.7)
+        debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
         # Display the processed image in a non-blocking OpenCV window
         cv2.imshow("Processed Image", debug)
 
-        # Non-blocking wait for 1 ms to update the window
-        cv2.waitKey(10)
+        # Non-blocking wait for 5 ms to update the window
+        cv2.waitKey(5)
 
 
 def main(args=None):
