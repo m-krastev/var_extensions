@@ -64,7 +64,14 @@ class LineDetectionNode(Node):
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
             lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
-        
+
+        mean_error = sum(t[1] for t in lines_info) / len(lines_info)
+
+
+        filtered_list = [t for t in lines_info if t[1] <= mean_error]
+        lines_info = filtered_list
+
+
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
             max_slope_index = max(range(len(lines_info)), key=lambda i: abs(lines_info[i][0]))
