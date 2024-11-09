@@ -21,7 +21,6 @@ setup(
     entry_points={
         'console_scripts': [
             f'line = {package_name}.line_detection_node:main',
-            f'line_listener = {package_name}.listener:main',
             f'line_follower = {package_name}.line_follower_node:main',
         ],
     },

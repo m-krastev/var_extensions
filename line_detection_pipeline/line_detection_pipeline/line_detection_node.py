@@ -19,17 +19,22 @@ print(sys.version_info)
 class LineDetectionNode(Node):
     def __init__(self, use_canny=False, show_battery=False):
         super().__init__("line_detection_node")
+        self.use_canny = use_canny
+
         self.subscription = self.create_subscription(
             CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
-    
+
         self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, 10)
         self.charge = 0
         self.status = "U"
 
         self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
         
-        self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 1)
+        self.lcd_publisher = None
+        if show_battery:
+            self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 1)
+
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
@@ -71,34 +76,63 @@ class LineDetectionNode(Node):
                 self.status = "F" # Full
             case _:
                 self.status = "U" # Unknown
-        image = self.create_text_image(f"{self.status}/{self.charge:.0f}%")
-        image = cv2.cvtColor(np.asarray(image, dtype=np.uint8), cv2.COLOR_GRAY2BGR)
-        msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
-        self.lcd_publisher.publish(msg)
+        if self.lcd_publisher is not None:
+            image = self.create_text_image(f"{self.status}/{self.charge:.0f}%")
+            image = cv2.cvtColor(np.asarray(image, dtype=np.uint8), cv2.COLOR_GRAY2BGR)
+            msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
+            self.lcd_publisher.publish(msg)
 
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
         img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         img = self.undistort(img)
 
+        # Detect the line in the image
+        if self.use_canny:
+            debug, line, direction = self.detect_line_canny(img)
+        else:
+            debug, line, direction = self.detect_line_ours(img)
+        
+        if direction is not None:
+            self.direction_publisher.publish(direction)
+    
+        self.get_logger().info("Processed and published line-detected image.")
+        # Write the battery status and charge on the image
+        battery_status = f"{self.status}/{self.charge:.0f}%"
+        cv2.putText(debug, battery_status, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        # debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
+        
+        # Display the processed image in a non-blocking OpenCV window
+        cv2.imshow(f"Processed Image ({battery_status})", debug)
+
+        # Non-blocking wait for 5 ms to update the window
+        cv2.waitKey(5)
+
+    def undistort(self,img):
+        h, w = img.shape[:2]
+        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.dist, (w, h), 1, (w, h))
+        dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
+        x, y, w, h = roi
+        dst = dst[y:y + h, x:x + w]
+        return dst
+    
+    
+    def detect_line_ours(self, image):
         # Preprocessing
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        bright = cv2.convertScaleAbs(
-            gray, alpha=1.5, beta=0)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        bright = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
 
         # Brigthness Threshold 
         brightness_threshold = 235
-        _, mask = cv2.threshold(img, brightness_threshold, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(image, brightness_threshold, 255, cv2.THRESH_BINARY)
         
-
-        # Assuming masked_image is the image you want to process
         # Convert the image to grayscale if it is not already
         if len(mask.shape) == 3:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
 
         # Ensure the image is in CV_8UC1 format
         mask = cv2.convertScaleAbs(mask)
-        masked_image = cv2.bitwise_and(img, img, mask=mask)
+        masked_image = cv2.bitwise_and(image, image, mask=mask)
 
         # Find contours
         masked_image = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
@@ -119,7 +153,7 @@ class LineDetectionNode(Node):
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
             x1 = x0 + (y1-y0)/slope
-            xs.append(abs(x1-img.shape[1]/2))
+            xs.append(abs(x1-image.shape[1]/2))
             lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
 
         # Find most vertical line and draw it red
@@ -128,40 +162,62 @@ class LineDetectionNode(Node):
             min_slope_contour = lines_info[min_dist_index][2]
             slope = lines_info[min_dist_index][0]
 
-            cv2.drawContours(img, [min_slope_contour], -1, (255, 0, 0), 2)
+            cv2.drawContours(image, [min_slope_contour], -1, (255, 0, 0), 2)
 
             # Change direction to make the vertical line more vertical
             direction = Twist()
             direction.angular.z = float(abs(slope) / slope)
-            self.direction_publisher.publish(direction)
-
-
-        # Convert processed image back to ROS Image message
-        self.get_logger().info("Processed and published line-detected image.")
 
         # First row: original image and grayscale image
         # Second row: brightened image and mask
-        first = np.hstack((img, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
+        first = np.hstack((image, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
         second = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
-        debug = np.vstack((first, second))
+        return np.vstack((first, second)), min_slope_contour, direction
+    
+    def detect_line_canny(self, image):
+        # Step 1: Preprocessing
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        bright = cv2.convertScaleAbs(
+            gray, alpha=1.5, beta=0
+        )  # adjust brightness if needed
+        blurred = cv2.GaussianBlur(bright, (5, 5), 0)
 
-        # Write the battery status and charge on the image
-        cv2.putText(debug, f"{self.status}/{self.charge:.0f}%", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        # debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
-        
-        # Display the processed image in a non-blocking OpenCV window
-        cv2.imshow("Processed Image", debug)
+        # Step 2: Edge Detection using Canny
+        edges = cv2.Canny(blurred, 150, 200)
 
-        # Non-blocking wait for 5 ms to update the window
-        cv2.waitKey(5)
+        # Step 3: Line Detection with Hough Transform
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi / 180, threshold=150, minLineLength=225, maxLineGap=20
+        )
 
-    def undistort(self,img):
-        h, w = img.shape[:2]
-        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.dist, (w, h), 1, (w, h))
-        dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
-        x, y, w, h = roi
-        dst = dst[y:y + h, x:x + w]
-        return dst
+        # Step 4: Filter and Draw Detected Lines
+        if lines is not None:
+            # Find the brightest line that is closest to the vertical center
+            brightest_line = None
+            max_brightness = -1
+            image_center_x = image.shape[1] // 2
+
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                cv2.line(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                line_brightness = (bright[y1, x1] + bright[y2, x2]) / 2
+                line_center_x = (x1 + x2) / 2
+
+                if line_brightness > max_brightness and abs(line_center_x - image_center_x) < 50:
+                    max_brightness = line_brightness
+                    brightest_line = line[0]
+
+            if brightest_line is not None:
+                x1, y1, x2, y2 = brightest_line
+                # Draw the brightest line in red
+                cv2.line(image, (x1, y1), (x2, y2), (0, 0, 255), 5)
+                direction = Twist()
+                direction.angular.z = (x1 + x2) / 2 - image_center_x
+
+        first_row = np.hstack((image, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
+        second_row = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)))
+        return np.vstack((first_row, second_row)), None, None
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -169,9 +225,9 @@ def main(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_canny", action="store_true", help="Use Canny edge detection")
     parser.add_argument("--show_battery", action="store_true", help="Show battery status on the LCD")
-    args = parser.parse_args(**vars(args))
+    args, _ = parser.parse_known_args()
 
-    node = LineDetectionNode(args)
+    node = LineDetectionNode(**vars(args))
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
