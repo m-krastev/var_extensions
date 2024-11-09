@@ -5,22 +5,41 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from sensor_msgs.msg import Image, CompressedImage
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from sensor_msgs.msg import Image, CompressedImage, BatteryState
 import os
 from .constants import (LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
-                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC)
+                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, BATTERY_STATUS_TOPIC)
 
 print(sys.version_info)
 
+highprofile = QoSProfile(
+    depth=5,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
+lowprofile = QoSProfile(
+    depth=3,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+)
 
 class LineDetectionNode(Node):
     def __init__(self):
         super().__init__("line_detection_node")
         self.subscription = self.create_subscription(
-            CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
+            CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, highprofile
         )
-        self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, 10)
-        self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
+    
+        self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, lowprofile)
+        self.charge = 0
+        self.status = "U"
+
+        self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, highprofile)
+        self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, highprofile)
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
@@ -28,11 +47,22 @@ class LineDetectionNode(Node):
         self.dist = np.loadtxt("dist")
         self.mtx = np.loadtxt("mtx")
 
+    def battery_callback(self, msg):
+        self.charge = msg.capacity
+        match msg.power_supply_status:
+            case BatteryState.POWER_SUPPLY_STATUS_DISCHARGING:
+                self.status = "D" # Discharging
+            case BatteryState.POWER_SUPPLY_STATUS_CHARGING:
+                self.status = "C" # Charging
+            case BatteryState.POWER_SUPPLY_STATUS_FULL:
+                self.status = "F" # Full
+            case _:
+                self.status = "U" # Unknown
+
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
         img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         img = self.undistort(img)
-
 
         # Preprocessing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -51,7 +81,6 @@ class LineDetectionNode(Node):
 
         # Ensure the image is in CV_8UC1 format
         mask = cv2.convertScaleAbs(mask)
-
         masked_image = cv2.bitwise_and(img, img, mask=mask)
 
         # Find contours
@@ -100,7 +129,11 @@ class LineDetectionNode(Node):
         first = np.hstack((img, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
         second = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
         debug = np.vstack((first, second))
-        debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
+
+        # Write the battery status and charge on the image
+        cv2.putText(debug, f"{self.status}/{self.charge:.0f}%", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        # debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
+        
         # Display the processed image in a non-blocking OpenCV window
         cv2.imshow("Processed Image", debug)
 
