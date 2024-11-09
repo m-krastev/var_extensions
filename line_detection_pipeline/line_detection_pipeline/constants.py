@@ -1,6 +1,23 @@
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+
 # Custom Communication topics
 OUTPUT_TOPIC = "line_detection/output"
 LINE_DIRECTION_TOPIC = "line_detection/direction"
+
+highprofile = QoSProfile(
+    depth=5,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
+lowprofile = QoSProfile(
+    depth=3,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
 
 # RAE Available NodesAUDIO_IN_TOPIC = '/audio_in'
 BATTERY_STATUS_TOPIC = '/battery_status'

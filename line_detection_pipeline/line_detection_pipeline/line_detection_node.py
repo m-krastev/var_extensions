@@ -1,3 +1,4 @@
+import argparse
 import sys
 import cv2
 import numpy as np
@@ -5,47 +6,59 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CompressedImage, BatteryState
 import os
-from .constants import (LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
-                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, BATTERY_STATUS_TOPIC)
+from .constants import (LCD_TOPIC, LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
+                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, BATTERY_STATUS_TOPIC, highprofile, lowprofile)
+
+from PIL import ImageDraw, ImageFont, Image as PILImage
 
 print(sys.version_info)
 
-highprofile = QoSProfile(
-    depth=5,
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    durability=DurabilityPolicy.VOLATILE,
-    history=HistoryPolicy.KEEP_LAST,
-)
-
-lowprofile = QoSProfile(
-    depth=3,
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    durability=DurabilityPolicy.VOLATILE,
-    history=HistoryPolicy.KEEP_LAST,
-)
 
 class LineDetectionNode(Node):
-    def __init__(self):
+    def __init__(self, use_canny=False, show_battery=False):
         super().__init__("line_detection_node")
         self.subscription = self.create_subscription(
-            CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, highprofile
+            CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
     
-        self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, lowprofile)
+        self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, 10)
         self.charge = 0
         self.status = "U"
 
-        self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, highprofile)
-        self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, highprofile)
+        self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
+        
+        self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 1)
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
         print(os.getcwd())
         self.dist = np.loadtxt("dist")
         self.mtx = np.loadtxt("mtx")
+
+    def create_text_image(self, text, width=160, height=80):
+        """
+        Creates a black and white image with the given text centered on it.
+        The font size is automatically determined based on the image size.
+        """
+        image = PILImage.new("L", (width, height), color="black")
+        draw = ImageDraw.Draw(image)
+
+        # Start with a large font size and decrease until the text fits
+        font_size = 50
+        while font_size > 0:
+            font = ImageFont.load_default(font_size)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            if text_width <= width and text_height <= height:
+                break
+            font_size -= 1
+
+        position = ((width - text_width) // 2, (height - text_height) // 2)
+        draw.text(position, text, fill="white", font=font)
+        return image
 
     def battery_callback(self, msg):
         self.charge = msg.capacity
@@ -58,6 +71,10 @@ class LineDetectionNode(Node):
                 self.status = "F" # Full
             case _:
                 self.status = "U" # Unknown
+        image = self.create_text_image(f"{self.status}/{self.charge:.0f}%")
+        image = cv2.cvtColor(np.asarray(image, dtype=np.uint8), cv2.COLOR_GRAY2BGR)
+        msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
+        self.lcd_publisher.publish(msg)
 
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
@@ -120,8 +137,6 @@ class LineDetectionNode(Node):
 
 
         # Convert processed image back to ROS Image message
-        output_msg = self.bridge.cv2_to_imgmsg(img, encoding="bgr8")
-        self.publisher.publish(output_msg)
         self.get_logger().info("Processed and published line-detected image.")
 
         # First row: original image and grayscale image
@@ -150,7 +165,13 @@ class LineDetectionNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = LineDetectionNode()
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--use_canny", action="store_true", help="Use Canny edge detection")
+    parser.add_argument("--show_battery", action="store_true", help="Show battery status on the LCD")
+    args = parser.parse_args(**vars(args))
+
+    node = LineDetectionNode(args)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

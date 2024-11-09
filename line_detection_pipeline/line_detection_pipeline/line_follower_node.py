@@ -4,7 +4,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 import signal
 
-from line_detection_pipeline.constants import CMD_VEL_TOPIC, LINE_DIRECTION_TOPIC
+from line_detection_pipeline.constants import CMD_VEL_TOPIC, LINE_DIRECTION_TOPIC, highprofile
 
 
 class LineFollowerNode(Node):
@@ -20,7 +20,8 @@ class LineFollowerNode(Node):
         # Process the direction message and send velocity commands
         velocity = Twist()
         velocity.linear.x = 0.25  # Move forward at a constant speed
-        velocity.angular.z = - msg.angular.z * 0.3  # Adjust the turning rate based on the line direction
+        turn = msg.angular.z
+        velocity.angular.z = turn * np.sin(turn) # Apply a sinusoidal function to the turn value so the robot can follow the line smoothly and not make sharp turns
         self.publisher.publish(velocity)
         self.get_logger().info(
             f"Published velocity: linear.x={velocity.linear.x}, angular.z={velocity.angular.z}"
@@ -28,7 +29,6 @@ class LineFollowerNode(Node):
 
     def stop_robot(self):
         # Stop the robot by publishing zero velocity
-        self.get_logger().info("Stopping the robot.")
         stop_velocity = Twist()
         stop_velocity.linear.x = 0.0
         stop_velocity.angular.z = 0.0
