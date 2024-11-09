@@ -5,8 +5,10 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from sensor_msgs.msg import Image
-from .constants import LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC
+from sensor_msgs.msg import Image, CompressedImage
+import os
+from .constants import (LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
+                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC)
 
 print(sys.version_info)
 
@@ -15,17 +17,22 @@ class LineDetectionNode(Node):
     def __init__(self):
         super().__init__("line_detection_node")
         self.subscription = self.create_subscription(
-            Image, RAE_RIGHT_IMAGE_RAW_TOPIC, self.process_image_callback, 10
+            CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
         self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, 10)
         self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
+        print(os.getcwd())
+        self.dist = np.loadtxt("dist")
+        self.mtx = np.loadtxt("mtx")
 
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
-        img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        img = self.undistort(img)
+
 
         # Preprocessing
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -69,33 +76,17 @@ class LineDetectionNode(Node):
             xs.append(abs(x1-img.shape[1]/2))
             lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
 
-        mean_error = sum(t[1] for t in lines_info) / len(lines_info)
-
-
-        filtered_list = [t for t in lines_info if t[1] <= mean_error]
-        lines_info = filtered_list
-
-
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
-            max_slope_index = max(range(len(lines_info)), key=lambda i: abs(lines_info[i][0]))
-            max_slope_contour = lines_info[max_slope_index][2]
-            (vx, vy, x0, y0) = lines_info[max_slope_index][3]
-            slope = lines_info[max_slope_index][0]
-            cv2.drawContours(img, [max_slope_contour], -1, (255, 0, 0), 2)
-            
-            t1 = 1000
-            t2 = -1000
-            x1 = int(x0 + t1 * vx)
-            y1 = int(y0 + t1 * vy)
-            x2 = int(x0 + t2 * vx)
-            y2 = int(y0 + t2 * vy)
+            min_dist_index = np.argmin(xs)
+            min_slope_contour = lines_info[min_dist_index][2]
+            slope = lines_info[min_dist_index][0]
 
-            # Change direction to make the vertical line more vertical 
+            cv2.drawContours(img, [min_slope_contour], -1, (255, 0, 0), 2)
+
+            # Change direction to make the vertical line more vertical
             direction = Twist()
-            direction.linear.x = float(x2 - x1)
-            direction.angular.z = float(slope)
-            self.logger.info(f"{slope=}")
+            direction.angular.z = float(abs(slope) / slope)
             self.direction_publisher.publish(direction)
 
 
@@ -116,6 +107,13 @@ class LineDetectionNode(Node):
         # Non-blocking wait for 5 ms to update the window
         cv2.waitKey(5)
 
+    def undistort(self,img):
+        h, w = img.shape[:2]
+        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.dist, (w, h), 1, (w, h))
+        dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
+        x, y, w, h = roi
+        dst = dst[y:y + h, x:x + w]
+        return dst
 
 def main(args=None):
     rclpy.init(args=args)

@@ -20,7 +20,7 @@ class LineFollowerNode(Node):
         # Process the direction message and send velocity commands
         velocity = Twist()
         velocity.linear.x = 0.25  # Move forward at a constant speed
-        velocity.angular.z = msg.angular.z * 0.3  # Adjust the turning rate based on the line direction
+        velocity.angular.z = - msg.angular.z * 0.3  # Adjust the turning rate based on the line direction
         self.publisher.publish(velocity)
         self.get_logger().info(
             f"Published velocity: linear.x={velocity.linear.x}, angular.z={velocity.angular.z}"
