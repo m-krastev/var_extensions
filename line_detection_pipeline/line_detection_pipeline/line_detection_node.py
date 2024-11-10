@@ -139,11 +139,11 @@ class LineDetectionNode(Node):
         contours, _ = cv2.findContours(masked_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contours = sorted(contours, key=len, reverse=True)
         
-        # Fit line to top 5 biggest contours
-        top_n=5
+        # Fit line to top 10 biggest contours and filtering those with fitting error >2
+        top_n=10
+        error_threshold = 2
         lines_info = []
         xs = []
-        y1 = 0
         for i, contour in enumerate(contours[:top_n]):
             points = contour.reshape(-1, 2)
             [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
@@ -152,12 +152,22 @@ class LineDetectionNode(Node):
             b = vx
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
-            x1 = x0 + (y1-y0)/slope
-            xs.append(abs(x1-image.shape[1]/2))
-            lines_info.append((slope,  np.mean(errors), contour, (vx, vy, x0, y0)))
+            error = np.mean(errors)
+            if error <2:
+                lines_info.append((slope,  error, contour, (vx, vy, x0, y0), abs(x0-image.shape[1]/2)))
 
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
+            min_dist_line = min(lines_info, key=lambda x: min(x[4]))
+            _, _, contour, (vx, vy, x0, y0), _ = min_dist_line
+            x1 = int(x0 - 1000 * vx)
+            y1 = int(y0 - 1000 * vy)
+            x2 = int(x0 + 1000 * vx)
+            y2 = int(y0 + 1000 * vy)
+
+            cv2.drawContours(image, [contour], -1, (255, 0, 255), 1)
+            cv2.line(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+
             min_dist_index = np.argmin(xs)
             min_slope_contour = lines_info[min_dist_index][2]
             slope = lines_info[min_dist_index][0]
