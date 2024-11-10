@@ -20,8 +20,8 @@ class LineFollowerNode(Node):
         # Process the direction message and send velocity commands
         velocity = Twist()
         velocity.linear.x = 0.25  # Move forward at a constant speed
-        turn = msg.angular.z
-        velocity.angular.z = np.arctan(turn) # Apply a sinusoidal function to the turn value so the robot can follow the line smoothly and not make sharp turns
+        turn = msg.angular.z #slope
+        velocity.angular.z = 0.3 * np.arctan(1/turn) / 1.57 # Apply a sinusoidal function to the turn value so the robot can follow the line smoothly and not make sharp turns
         self.publisher.publish(velocity)
         self.get_logger().info(
             f"Published velocity: linear.x={velocity.linear.x}, angular.z={velocity.angular.z}"
