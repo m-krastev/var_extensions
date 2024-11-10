@@ -1,17 +1,19 @@
 import argparse
+import os
 import sys
+from datetime import datetime
+
 import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
+from PIL import Image as PILImage
+from PIL import ImageDraw, ImageFont
 from rclpy.node import Node
-from sensor_msgs.msg import Image, CompressedImage, BatteryState
-import os
-from .constants import (LCD_TOPIC, LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
-                        RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, BATTERY_STATUS_TOPIC, highprofile, lowprofile)
+from sensor_msgs.msg import BatteryState, CompressedImage, Image
 
-from PIL import ImageDraw, ImageFont, Image as PILImage
+from .constants import BATTERY_STATUS_TOPIC, LCD_TOPIC, LINE_DIRECTION_TOPIC, OUTPUT_TOPIC, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, highprofile, lowprofile
 
 print(sys.version_info)
 
@@ -24,16 +26,20 @@ class LineDetectionNode(Node):
         self.subscription = self.create_subscription(
             CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
-
-        self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, 10)
-        self.charge = 0
-        self.status = "U"
-
         self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
-        
-        self.lcd_publisher = None
-        if show_battery:
-            self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 1)
+
+
+        # ############################
+        # Battery status and charge
+        self.show_battery = show_battery
+        self.charge, self.status = 0, "U"
+        self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 10)
+        self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, 10)
+
+        # self.lcd_publisher = None
+        # self.battery_reader = None
+        # self.battery_timer = self.create_timer(5, self.battery_timer_callback)
+        # ############################
 
         self.bridge = CvBridge()
         self.logger = self.get_logger()
@@ -41,6 +47,16 @@ class LineDetectionNode(Node):
         print(os.getcwd())
         self.dist = np.loadtxt("dist")
         self.mtx = np.loadtxt("mtx")
+
+    # def battery_timer_callback(self):
+    #     if self.battery_reader is None:
+    #         self.lcd_publisher = self.create_publisher(Image, LCD_TOPIC, 1)
+    #         self.battery_reader = self.create_subscription(BatteryState, BATTERY_STATUS_TOPIC, self.battery_callback, 10)
+    #     else:
+    #         self.battery_reader.destroy()
+    #         self.battery_reader = None
+    #         self.lcd_publisher.destroy()
+    #         self.lcd_publisher = None
 
     def create_text_image(self, text, width=160, height=80):
         """
@@ -85,6 +101,9 @@ class LineDetectionNode(Node):
     def process_image_callback(self, msg):
         # Convert ROS Image message to OpenCV format
         img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        # Save the original image to the filesystem
+        cv2.imwrite(f"debug/image-{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img)
+        self.logger.info("Received image from camera.")
         img = self.undistort(img)
 
         # Detect the line in the image
@@ -103,7 +122,7 @@ class LineDetectionNode(Node):
         # debug = cv2.resize(debug, (0, 0), fx=0.6, fy=0.6)
         
         # Display the processed image in a non-blocking OpenCV window
-        cv2.imshow(f"Processed Image ({battery_status})", debug)
+        cv2.imshow("Processed Image", debug)
 
         # Non-blocking wait for 5 ms to update the window
         cv2.waitKey(5)
@@ -118,6 +137,8 @@ class LineDetectionNode(Node):
     
     
     def detect_line_ours(self, image):
+        min_slope_contour, direction = None, None
+        
         # Preprocessing
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         bright = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
@@ -153,30 +174,23 @@ class LineDetectionNode(Node):
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
             error = np.mean(errors)
-            if error <2:
+            if error < error_threshold:
                 lines_info.append((slope,  error, contour, (vx, vy, x0, y0), abs(x0-image.shape[1]/2)))
 
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
             min_dist_line = min(lines_info, key=lambda x: min(x[4]))
-            _, _, contour, (vx, vy, x0, y0), _ = min_dist_line
+            slope, _, min_slope_contour, (vx, vy, x0, y0), _ = min_dist_line
             x1 = int(x0 - 1000 * vx)
             y1 = int(y0 - 1000 * vy)
             x2 = int(x0 + 1000 * vx)
             y2 = int(y0 + 1000 * vy)
 
-            cv2.drawContours(image, [contour], -1, (255, 0, 255), 1)
-            cv2.line(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+            cv2.drawContours(image, [contour], -1, (255, 0, 0), 2)
+            cv2.line(image, (x1, y1), (x2, y2), (0, 0, 255), 1)
 
-            min_dist_index = np.argmin(xs)
-            min_slope_contour = lines_info[min_dist_index][2]
-            slope = lines_info[min_dist_index][0]
-
-            cv2.drawContours(image, [min_slope_contour], -1, (255, 0, 0), 2)
-
-            # Change direction to make the vertical line more vertical
             direction = Twist()
-            direction.angular.z = float(abs(slope) / slope)
+            direction.angular.z = float(slope)
 
         # First row: original image and grayscale image
         # Second row: brightened image and mask
@@ -185,6 +199,8 @@ class LineDetectionNode(Node):
         return np.vstack((first, second)), min_slope_contour, direction
     
     def detect_line_canny(self, image):
+        brightest_line, direction = None, None
+
         # Step 1: Preprocessing
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         bright = cv2.convertScaleAbs(
@@ -203,7 +219,6 @@ class LineDetectionNode(Node):
         # Step 4: Filter and Draw Detected Lines
         if lines is not None:
             # Find the brightest line that is closest to the vertical center
-            brightest_line = None
             max_brightness = -1
             image_center_x = image.shape[1] // 2
 
@@ -226,7 +241,7 @@ class LineDetectionNode(Node):
 
         first_row = np.hstack((image, cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
         second_row = np.hstack((cv2.cvtColor(bright, cv2.COLOR_GRAY2BGR), cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)))
-        return np.vstack((first_row, second_row)), None, None
+        return np.vstack((first_row, second_row)), brightest_line, direction
 
 
 def main(args=None):
