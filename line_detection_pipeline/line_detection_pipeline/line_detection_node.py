@@ -143,7 +143,7 @@ class LineDetectionNode(Node):
         top_n=10
         error_threshold = 2
         lines_info = []
-        xs = []
+        y1=0
         for i, contour in enumerate(contours[:top_n]):
             points = contour.reshape(-1, 2)
             [vx, vy, x0, y0] = cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)
@@ -153,8 +153,9 @@ class LineDetectionNode(Node):
             c = vy * x0 - vx * y0
             errors =  np.abs(a * points[:, 0] + b * points[:, 1] + c) / np.sqrt(a**2 + b**2) 
             error = np.mean(errors)
+            x1 = x0 + (y1-y0)/slope
             if error <2:
-                lines_info.append((slope,  error, contour, (vx, vy, x0, y0), abs(x0-image.shape[1]/2)))
+                lines_info.append((slope,  error, contour, (vx, vy, x0, y0), abs(x1-image.shape[1]/2)))
 
         # Find most vertical line and draw it red
         if len(lines_info) != 0:
