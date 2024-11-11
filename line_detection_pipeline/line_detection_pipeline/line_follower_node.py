@@ -2,9 +2,14 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-import signal
 
-from line_detection_pipeline.constants import CMD_VEL_TOPIC, LINE_DIRECTION_TOPIC, highprofile
+from line_detection_pipeline.constants import (
+    CMD_VEL_TOPIC,
+    LINE_DIRECTION_TOPIC,
+    highprofile,
+)
+
+RHALFPI = 2 / np.pi
 
 
 class LineFollowerNode(Node):
@@ -20,19 +25,27 @@ class LineFollowerNode(Node):
         # Process the direction message and send velocity commands
         velocity = Twist()
         velocity.linear.x = 0.25  # Move forward at a constant speed
-        turn = msg.angular.z #slope
-        velocity.angular.z = 0.3 * np.arctan(1/turn) / 1.57 # Apply a sinusoidal function to the turn value so the robot can follow the line smoothly and not make sharp turns
+        turn = msg.angular.z  # slope
+        
+        # ArcTan function to find the angle of the line (-pi/2 to pi/2)
+        # Divide by the slope so that the robot only turns when the line is not straight
+        # Multiple by 3 to smooth the function
+        # Divide by π/2 to convert to rad/s
+        # Multiply by 0.3 to limit the turn speed
+        # Negative sign to move away from side lines (or lines with low slope) since we want to stay in the middle.
+        velocity.angular.z = (
+            - 0.3 * np.arctan(3 / turn) * RHALFPI
+        )
+        
         self.publisher.publish(velocity)
         self.get_logger().info(
-            f"Published velocity: linear.x={velocity.linear.x}, angular.z={velocity.angular.z}"
+            f"Speed: \t{velocity.linear.x:.2f}m/s \t Turn: \t{velocity.angular.z:.4f} rad/s"
         )
 
     def stop_robot(self):
         # Stop the robot by publishing zero velocity
-        stop_velocity = Twist()
-        stop_velocity.linear.x = 0.0
-        stop_velocity.angular.z = 0.0
-        self.publisher.publish(stop_velocity)
+        self.publisher.publish(Twist())
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -46,6 +59,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
