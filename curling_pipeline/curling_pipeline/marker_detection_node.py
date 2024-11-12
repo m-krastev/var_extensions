@@ -60,7 +60,7 @@ class MarkerDetectionNode(Node):
         # First row: original image and grayscale image
         # Second row: brightened image and mask
         # Display the processed image in a non-blocking OpenCV window
-        cv2.imshow("Processed Image", image)
+        cv2.imshow("Processed Image", img)
 
         # Non-blocking wait for 5 ms to update the window
         cv2.waitKey(5)
