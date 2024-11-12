@@ -107,7 +107,7 @@ class LineDetectionNode(Node):
                 self.status = "F"  # Full
             case _:
                 self.status = "U"  # Unknown
-        if self.lcd_publisher is not None:
+        if self.show_battery:
             image = self.create_text_image(f"{self.status}/{self.charge:.0f}%")
             image = cv2.cvtColor(np.asarray(image, dtype=np.uint8), cv2.COLOR_GRAY2BGR)
             msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
@@ -117,10 +117,10 @@ class LineDetectionNode(Node):
         # Convert ROS Image message to OpenCV format
         img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         # Save the original image to the filesystem
-        cv2.imwrite(
-            f"debug/image-{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img
-        )
-        self.logger.info("Received image from camera.")
+        # cv2.imwrite(
+        #     f"debug/image-{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img
+        # )
+        # self.logger.info("Received image from camera.")
         img = self.undistort(img)
 
         # Detect the line in the image
@@ -225,7 +225,7 @@ class LineDetectionNode(Node):
             x2 = int(x0 + 1000 * vx)
             y2 = int(y0 + 1000 * vy)
 
-            cv2.drawContours(image, [contour], -1, (255, 0, 0), 2)
+            cv2.drawContours(image, [min_slope_contour], -1, (255, 0, 0), 2)
             cv2.line(image, (x1, y1), (x2, y2), (0, 0, 255), 1)
 
             direction = Twist()

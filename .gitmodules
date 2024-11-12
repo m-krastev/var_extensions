@@ -1,0 +1,4 @@
+# Use 'git submodule update --init --recursive' to clone the submodules
+[submodule "depthai"]
+    path = depthai
+    url = https://github.com/luxonis/depthai
