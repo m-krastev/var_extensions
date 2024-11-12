@@ -60,8 +60,8 @@ class LineDetectionNode(Node):
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
         print(os.getcwd())
-        self.dist = np.loadtxt("dist")
-        self.mtx = np.loadtxt("mtx")
+        self.dist = np.loadtxt("calibration/right_camera/dist")
+        self.mtx = np.loadtxt("calibration/right_camera/mtx")
 
     # def battery_timer_callback(self):
     #     if self.battery_reader is None:
@@ -117,11 +117,11 @@ class LineDetectionNode(Node):
         # Convert ROS Image message to OpenCV format
         img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         # Save the original image to the filesystem
-        # cv2.imwrite(
-        #     f"debug/image-{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img
-        # )
-        # self.logger.info("Received image from camera.")
         img = self.undistort(img)
+        cv2.imwrite(
+            f"debug/{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img
+        )
+        # self.logger.info("Received image from camera.")
 
         # Detect the line in the image
         if self.use_canny:
@@ -155,7 +155,7 @@ class LineDetectionNode(Node):
     def undistort(self, img):
         h, w = img.shape[:2]
         newcameramtx, roi = cv2.getOptimalNewCameraMatrix(
-            self.mtx, self.dist, (w, h), 1, (w, h)
+            self.mtx, self.dist, (w, h), 0.05, (w, h)
         )
         dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
         x, y, w, h = roi
