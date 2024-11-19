@@ -44,19 +44,6 @@ class MarkerDetectionNode(Node):
         if ids is not None:
             for i in range(len(ids)):
                 cv2.aruco.drawDetectedMarkers(img, corners, ids)
-
-                ###Suggestion for simple distance measurements (first part of section 2) "Report the Distance Measurement"
-                # marker_size = actual size of the markers, e.g., 0.1 for 10 cm - "Reduce the error of distance measurement" section
-                # Estimate pose of each marker
-                # rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_size, self.mtx, self.dist) 
-
-                # # Distance is the norm of the translation vector
-                # distance = np.linalg.norm(tvec[0, 0, :])
-                # print(f"Marker ID: {ids[i][0]}, Distance: {distance:.2f} meters")
-
-                # # Draw axis for visualization
-                # cv2.aruco.drawAxis(img, self.mtx, self.dist, rvec[0, 0], tvec[0, 0], marker_size / 2)
-
         else:
             print("No AprilTags detected.")
 
