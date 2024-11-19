@@ -60,8 +60,8 @@ class LineDetectionNode(Node):
         self.logger = self.get_logger()
         self.logger.info("Line Detection Node started.")
         print(os.getcwd())
-        self.dist = np.loadtxt("calibration/right_camera/dist")
-        self.mtx = np.loadtxt("calibration/right_camera/mtx")
+        self.dist = np.loadtxt("calibration/right_camera/800/dist")
+        self.mtx = np.loadtxt("calibration/right_camera/800/mtx")
 
     # def battery_timer_callback(self):
     #     if self.battery_reader is None:
@@ -119,7 +119,7 @@ class LineDetectionNode(Node):
         # Save the original image to the filesystem
         img = self.undistort(img)
         cv2.imwrite(
-            f"debug/{datetime.fromtimestamp(msg.header.stamp.sec)}.png", img
+            f"debug/{datetime.fromtimestamp(msg.header.stamp.sec)}.jpg", img
         )
         # self.logger.info("Received image from camera.")
 
@@ -153,13 +153,17 @@ class LineDetectionNode(Node):
         cv2.waitKey(5)
 
     def undistort(self, img):
-        h, w = img.shape[:2]
-        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(
-            self.mtx, self.dist, (w, h), 0.05, (w, h)
-        )
-        dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
-        x, y, w, h = roi
-        dst = dst[y : y + h, x : x + w]
+        # h, w = img.shape[:2]
+        # newcameramtx, roi = cv2.getOptimalNewCameraMatrix(
+        #     self.mtx, self.dist, (w, h), 0.95, (w, h)
+        # )
+        # dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
+        # x, y, w, h = roi
+        # dst = dst[y : y + h, x : x + w]
+        dst = cv2.undistort(img, self.mtx, self.dist, None, self.mtx)
+
+        # blurred = cv2.GaussianBlur(dst, (3, 3), 5)
+        # dst = cv2.addWeighted(dst, 3, blurred, -2, 0)
         return dst
 
     def detect_line_ours(self, image):
