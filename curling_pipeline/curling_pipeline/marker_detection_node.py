@@ -45,10 +45,10 @@ class MarkerDetectionNode(Node):
             for i in range(len(ids)):
                 cv2.aruco.drawDetectedMarkers(img, corners, ids)
 
-                ###Suggestion for simple distance measurements (first part of section 2)
-                # marker_size = actual size of the markers, e.g., 0.1 for 10 cm
+                ###Suggestion for simple distance measurements (first part of section 2) "Report the Distance Measurement"
+                # marker_size = actual size of the markers, e.g., 0.1 for 10 cm - "Reduce the error of distance measurement" section
                 # Estimate pose of each marker
-                # rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_size, self.mtx, self.dist)
+                # rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_size, self.mtx, self.dist) 
 
                 # # Distance is the norm of the translation vector
                 # distance = np.linalg.norm(tvec[0, 0, :])
