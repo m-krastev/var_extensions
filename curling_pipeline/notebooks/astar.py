@@ -14,11 +14,15 @@ class Node:
         return (self.cost + self.heuristic) < (other.cost + other.heuristic)
 
 
-def heuristic(a, b):
+def manhattan_distance(a, b):
     return abs(a.x - b.x) + abs(a.y - b.y)
 
 
-def a_star(start, goal, obstacles):
+def euclidian_distance(a, b):
+    return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
+
+
+def a_star(start, goal, obstacles, heuristic="manhattan"):
     open_list = []
     closed_list = set()
     start_node = Node(*start)
@@ -52,8 +56,13 @@ def a_star(start, goal, obstacles):
                 next_x,
                 next_y,
                 current_node.cost + 1,
-                heuristic(Node(next_x, next_y), goal_node),
+                0,
                 current_node,
+            )
+            neighbor_node.heuristic = (
+                manhattan_distance(neighbor_node, goal_node)
+                if heuristic == "manhattan"
+                else euclidian_distance(neighbor_node, goal_node)
             )
 
             if (next_x, next_y) in node_costs and node_costs[
@@ -67,49 +76,64 @@ def a_star(start, goal, obstacles):
     return None
 
 
-# Convert coordinates to grid bins
-def to_grid(x, y, width, height, grid_width, grid_height):
-    grid_x = int((x + width / 2) / width * grid_width)
-    grid_y = int((y + height / 2) / height * grid_height)
-    return grid_x, grid_y
+class PathFinder:
+    def __init__(
+        self,
+        grid_width,
+        grid_height,
+        global_width,
+        global_height,
+    ):
+        self.grid_width = grid_width
+        self.grid_height = grid_height
+        self.global_width = global_width
+        self.global_height = global_height
+
+    # Convert coordinates to grid bins
+    def to_grid(self, x, y):
+        grid_x = int(x / self.global_width * self.grid_width)
+        grid_y = int(y / self.global_height * self.grid_height)
+        return grid_x, grid_y
+
+    # Convert grid bins back to coordinates
+    def to_coordinates(self, grid_x, grid_y):
+        x = grid_x / self.grid_width * self.global_width
+        y = grid_y / self.grid_height * self.global_height
+        return x, y
+
+    def find_path(
+        self, start, goal, obstacles, distance_metric="manhattan", debug=False
+    ):
+        start_grid = self.to_grid(*start)
+        goal_grid = self.to_grid(*goal)
+        obstacles_grid = {self.to_grid(x, y) for x, y in obstacles}
+
+        if debug:
+            ddict = {}
+            tick = time.time()
+            path_grid = a_star(start_grid, goal_grid, obstacles_grid, distance_metric)
+            ddict["elapsed"] = time.time() - tick
+            ddict["path"] = path_grid
+        else:
+            path_grid = a_star(start_grid, goal_grid, obstacles_grid)
+
+        coordinate_path = [self.to_coordinates(x, y) for x, y in path_grid]
+        return coordinate_path, ddict if debug else coordinate_path
 
 
-# Convert grid bins back to coordinates
-def to_coordinates(grid_x, grid_y, width, height, grid_width, grid_height):
-    x = grid_x / grid_width * width - width / 2
-    y = grid_y / grid_height * height - height / 2
-    return x, y
+if __name__ == "__main__":
+    # Define the grid size
+    grid_width = 100
+    grid_height = 60
 
+    start = (3000, 300)
+    goal, obstacles = (1000, 500), []
 
-def select_duck(duck_locations, idx):
-    return duck_locations[idx], duck_locations[:idx] + duck_locations[idx + 1 :]
+    A = 9000
+    B = 6000
 
+    path_finder = PathFinder(grid_width, grid_height, A, B)
+    path, debug = path_finder.find_path(start, goal, obstacles, debug=True)
 
-# Define the grid size
-grid_width = 100
-grid_height = 60
-
-start = (3000, 300)
-goal, obstacles = select_duck(1)
-
-A = 9000
-B = 6000
-
-# Convert start, goal, and obstacles to grid bins
-start_grid = to_grid(*start, A, B, grid_width, grid_height)
-goal_grid = to_grid(*goal, A, B, grid_width, grid_height)
-obstacles_grid = {to_grid(x, y, A, B, grid_width, grid_height) for x, y in obstacles}
-
-# Measure the time taken to find the path
-start_time = time.time()
-path_grid = a_star(start_grid, goal_grid, obstacles_grid)
-end_time = time.time()
-
-# Convert the path back to coordinates
-path_coordinates = [
-    to_coordinates(x, y, A, B, grid_width, grid_height) for x, y in path_grid
-]
-
-# Print the path and time taken
-print("Path:", path_coordinates)
-print("Time taken:", end_time - start_time, "seconds")
+    print("Path:", path)
+    print("Time taken:", debug["elapsed"], "seconds")
