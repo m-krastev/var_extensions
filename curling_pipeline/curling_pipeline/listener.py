@@ -1,3 +1,4 @@
+import time
 from .constants import CMD_VEL_TOPIC, OUTPUT_TOPIC
 import rclpy
 from rclpy.node import Node
@@ -16,9 +17,8 @@ class LineDetectionListener(Node):
             10  # Queue size (adjustable)
         )
         self.publisher = self.create_publisher(Twist, CMD_VEL_TOPIC, 10)
-        coordinates = [(4500.0, 3000.0), (4275.0, 3000.0), (4050.0, 3000.0), (3825.0, 3000.0), (3600.0, 3000.0), (3375.0, 3000.0), (3150.0, 3000.0), (2925.0, 3000.0), (2925.0, 3300.0000000000005), (2700.0, 3300.0000000000005), (2700.0, 3600.0), (2475.0, 3600.0), (2475.0, 3900.0), (2250.0, 3900.0), (2025.0, 3900.0), (2025.0, 4200.0), (2025.0, 4500.0), (1800.0, 4500.0), (1800.0, 4800.0), (1575.0, 4800.0)]
-        self.follow_coordinates(coordinates)
-        
+        self.get_logger().info('Listener node has been initialized')
+
         
     def follow_coordinates(self, coordinates: list[tuple[float, float]]):
         last_change = 0 # 0 for x, 1 for y; in which direction the robot moved last
@@ -58,7 +58,9 @@ class LineDetectionListener(Node):
                 case "left":
                     twist.angular.z = 0.3
             self.publisher.publish(twist)
+            time.sleep(0.5)
             self.get_logger().info(f'Move {direction} to {curr_x}, {curr_y}')
+        self.get_logger().info('Reached the end of the path')
 
     def listener_callback(self, msg):
         # This function is called whenever a message is received on the subscribed topic
@@ -69,8 +71,12 @@ def main(args=None):
 
     listener = LineDetectionListener()  # Create the listener object
 
+    coordinates = [(4500.0, 3000.0), (4275.0, 3000.0), (4050.0, 3000.0), (3825.0, 3000.0), (3600.0, 3000.0), (3375.0, 3000.0), (3150.0, 3000.0), (2925.0, 3000.0), (2925.0, 3300.0000000000005), (2700.0, 3300.0000000000005), (2700.0, 3600.0), (2475.0, 3600.0), (2475.0, 3900.0), (2250.0, 3900.0), (2025.0, 3900.0), (2025.0, 4200.0), (2025.0, 4500.0), (1800.0, 4500.0), (1800.0, 4800.0), (1575.0, 4800.0)]
+    listener.follow_coordinates(coordinates)
+
     # Spin the node so it can keep listening for incoming messages
     rclpy.spin(listener)
+    
 
     # Cleanup and shutdown when node is done
     listener.destroy_node()
