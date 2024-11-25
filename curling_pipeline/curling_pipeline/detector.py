@@ -1,4 +1,7 @@
+from io import BytesIO
+import json
 import sys
+from .astar import PathFinder
 import cv2
 import numpy as np
 import rclpy
@@ -6,9 +9,13 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CompressedImage
+from std_msgs.msg import String
+
 import os
 from .constants import (LINE_DIRECTION_TOPIC, RAE_RIGHT_IMAGE_RAW_TOPIC, OUTPUT_TOPIC,
                         RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC)
+import matplotlib.pyplot as plt
+from matplotlib import patches
 
 print(sys.version_info)
 
@@ -97,20 +104,29 @@ markers = {
 }
 
 
+duck_locations = (
+    (G, (B + H) / 2),
+    (G, (B - H) / 2),
+    (E, (B + F) / 2),
+    (E, (B - F) / 2),
+    (I, B / 2),
+)
+
+
 class MarkerDetectionNode(Node):
     def __init__(self):
         super().__init__("line_detection_node")
         self.subscription = self.create_subscription(
             CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
-        self.publisher = self.create_publisher(Image, OUTPUT_TOPIC, 10)
+        self.publisher = self.create_publisher(String, OUTPUT_TOPIC, 10)
         self.direction_publisher = self.create_publisher(Twist, LINE_DIRECTION_TOPIC, 10)
         self.bridge = CvBridge()
         self.logger = self.get_logger()
         self.logger.info("Marker Detection Node started.")
         print(os.getcwd())
-        self.dist = np.loadtxt("dist")
-        self.mtx = np.loadtxt("mtx")
+        self.dist = np.loadtxt("calibration/right_camera/800/dist")
+        self.mtx = np.loadtxt("calibration/right_camera/800/mtx")
 
         
     # Functions
@@ -286,7 +302,7 @@ class MarkerDetectionNode(Node):
                 x_robot = x_A - x_robot_respect_to_marker
                 # print(x_robot)
                 y_robot = self.location_for_one_marker(x_A, y_A, z_A, x_robot_respect_to_marker, None, one_dist)
-                if y_robot == None:
+                if y_robot is not None:
                     # print("No inter")
                     return (None, None, None)
                 
@@ -296,7 +312,7 @@ class MarkerDetectionNode(Node):
                 y_robot = y_A - y_robot_respect_to_marker
                 # print(y_robot)
                 x_robot = self.location_for_one_marker(x_A, y_A, z_A, None, y_robot_respect_to_marker, one_dist)
-                if x_robot == None:
+                if x_robot is not None:
                     # print("No inter")
                     return (None, None, None)
             return (x_robot, y_robot, 0)
@@ -311,12 +327,64 @@ class MarkerDetectionNode(Node):
 
     def process_image_callback(self, msg):
         image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        debug = image.copy()
         # image = self.undistort(image)   
-    
+        # self.get_logger().info(f"Image received at {self.get_clock().now()}")
         blurred = cv2.GaussianBlur(image, (3, 3), 5)
-        image = cv2.addWeighted(image, 3, blurred, -2, 0)
+        image = cv2.addWeighted(image, 1.5, blurred, -0.5, 0)
+        
+        debug = np.concatenate((debug, image), axis=1)
 
-        return self.detect_and_locate(image)
+        (x,y,z) = self.detect_and_locate(image)
+        self.get_logger().info(f"Robot located at: {x}, {y}, {z}")
+        fig, ax = visualize_field(x, y)
+        
+                
+        def select_duck(duck_locations, idx):
+            return duck_locations[idx], duck_locations[:idx] + duck_locations[idx + 1 :]
+
+        if x is not None:
+            start = (x + A/2,y + B/2)
+
+            # Select the first duck
+            goal, obstacles = select_duck(duck_locations, 0)
+
+            # If the robot is close to the duck, don't move or find paths
+            if np.linalg.norm(np.array(start) - np.array(goal)) < 100:
+                self.get_logger().info("Robot is close to the duck. Not moving.")
+            else:
+                pathfinder = PathFinder(40, 20, A, B)
+                path_coordinates, debug_dict = pathfinder.find_path(start, goal, obstacles, distance_metric="euclidian", debug=True)
+                self.get_logger().debug(f"Path coordinates: {debug_dict}")
+                message = String()
+                message.data = json.dumps(path_coordinates)
+                self.publisher.publish(message)
+                
+                ax.scatter(*list(zip(*path_coordinates)), C / 2, "k", zorder=3)
+        
+        # Step 2: Save the plot to an in-memory buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)  # Rewind the buffer to the beginning
+
+        # Step 3: Use OpenCV to decode the image from the buffer
+        # Read the image as bytes and decode it using cv2
+        img_bytes = np.frombuffer(buf.read(), dtype=np.uint8)  # Convert buffer to byte array
+        img_array = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)  # Decode the byte array into an image (BGR format)
+
+
+        # Resize the image to match the original image size (with padding)
+        img_array = cv2.resize(img_array, (debug.shape[1], debug.shape[0]))
+        
+        # Concatenate the original image and the plot
+        debug = np.concatenate((debug, img_array), axis=0)
+        debug = cv2.resize(debug, (800, 600))
+
+        # Optionally, display the image using OpenCV
+        cv2.imshow('Matplotlib Plot', debug)
+        cv2.waitKey(500)
+        # plt.show(block=False)
+        # plt.pause(0.5)
     
 #  def undistort(self, image):
 
@@ -332,3 +400,93 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
+
+
+
+
+### Utility functions
+
+
+def visualize_field(xrobot, yrobot):
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(10, 6))
+    fig.patch.set_facecolor("green")  # Set the background color to green
+
+    # Draw the outer field
+    outer_field = patches.Rectangle(
+        (0, 0), A, B, linewidth=C / 10, edgecolor="white", facecolor="none"
+    )
+    ax.add_patch(outer_field)
+
+    # Goal areas
+    goal_area_left = patches.Rectangle(
+        (0, (B - F) / 2), E, F, linewidth=C / 10, edgecolor="white", facecolor="none"
+    )
+    goal_area_right = patches.Rectangle(
+        (A - E, (B - F) / 2),
+        E,
+        F,
+        linewidth=C / 10,
+        edgecolor="white",
+        facecolor="none",
+    )
+    ax.add_patch(goal_area_left)
+    ax.add_patch(goal_area_right)
+
+    # Penalty areas
+    penalty_area_left = patches.Rectangle(
+        (0, (B - H) / 2), G, H, linewidth=C / 10, edgecolor="white", facecolor="none"
+    )
+    penalty_area_right = patches.Rectangle(
+        (A - G, (B - H) / 2),
+        G,
+        H,
+        linewidth=C / 10,
+        edgecolor="white",
+        facecolor="none",
+    )
+    ax.add_patch(penalty_area_left)
+    ax.add_patch(penalty_area_right)
+
+    # Penalty marks
+    ax.plot(I, B / 2, "wo", markersize=D / 10)  # Left penalty mark
+    ax.plot(A - I, B / 2, "wo", markersize=D / 10)  # Right penalty mark
+
+    # Center circle
+    center_circle = patches.Circle(
+        (A / 2, B / 2), J / 2, linewidth=C / 10, edgecolor="white", facecolor="none"
+    )
+    ax.add_patch(center_circle)
+    ax.plot(A / 2, B / 2, "wo", markersize=D / 10)  # Center mark
+
+    # Halfway line
+    ax.plot([A / 2, A / 2], [0, B], "white", linewidth=C / 10)
+
+    # Plot the ducks
+    # For some reason hides the center point
+    ax.scatter(*list(zip(*duck_locations)), D, "yellow", zorder=2.5)
+
+    # Robot position
+    if xrobot is not None:
+        ax.plot(int(xrobot) +A/2,int(yrobot) +B/2, "ro", zorder=5)
+    else:
+        print("Robot coudln't be located")
+
+    # Plot the markers on the field
+    for marker, (x, y, z, _, _) in markers.items():
+        # Convert (x, y) to pixel coordinates
+        x  # *= 1000
+        y  # *=1000
+        x_img = int((x + A / 2))
+        y_img = int((y + B / 2))
+
+        # Draw a blue circle for each marker
+        ax.plot(x_img, y_img, "bo", markersize=5)
+        ax.text(x_img, y_img-400, marker)
+
+    # Set the limits and aspecs
+    ax.set_xlim(-K, A + K)
+    ax.set_ylim(-K, B + K)
+    ax.set_aspect("equal", adjustable="box")
+    ax.axis("off")  # Turn off axe
+    return fig, ax

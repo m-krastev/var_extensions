@@ -1,10 +1,9 @@
+import json
 import time
 from .constants import CMD_VEL_TOPIC, OUTPUT_TOPIC
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import (
-    String,
-)  # Adjust the message type based on your publisher's message type
+from std_msgs.msg import String
 from geometry_msgs.msg import Twist
 
 
@@ -17,10 +16,20 @@ class LineDetectionListener(Node):
             String,  # Replace with the appropriate message type
             OUTPUT_TOPIC,  # Replace with the actual topic name
             self.listener_callback,
-            10,  # Queue size (adjustable)
+            1,  # Queue size (adjustable)
         )
         self.publisher = self.create_publisher(Twist, CMD_VEL_TOPIC, 10)
         self.get_logger().info("Listener node has been initialized")
+
+    def listener_callback(self, msg):
+        # This function is called whenever a message is received on the subscribed topic
+        self.get_logger().info(f"Received message: {msg.data}")
+        self.publisher.publish(Twist())
+
+        # Parse the message and do something with it
+        msg = json.loads(msg.data)
+        self.get_logger().info(f"Received message: {msg}")
+        self.follow_coordinates(msg)
 
     def follow_coordinates(self, coordinates: list[tuple[float, float]]):
         last_change = 0  # 0 for x, 1 for y; in which direction the robot moved last
@@ -64,10 +73,6 @@ class LineDetectionListener(Node):
             self.get_logger().info(f"Move {direction} to {curr_x}, {curr_y}")
         self.get_logger().info("Reached the end of the path")
 
-    def listener_callback(self, msg):
-        # This function is called whenever a message is received on the subscribed topic
-        self.get_logger().info(f"Received message: {msg.data}")
-
 
 def main(args=None):
     rclpy.init(args=args)  # Initialize ROS2
@@ -104,7 +109,7 @@ def main(args=None):
         (200, 5000),
         (0, 5000),
     ]
-    listener.follow_coordinates(coordinates)
+    # listener.follow_coordinates(coordinates)
 
     # Spin the node so it can keep listening for incoming messages
     rclpy.spin(listener)

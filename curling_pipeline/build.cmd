@@ -2,6 +2,7 @@ echo Removing the existing build and install directories...
 rmdir /S /Q build
 rmdir /S /Q install
 
+set ROS_DOMAIN_ID=5
 echo Building the project...
 colcon build
 
