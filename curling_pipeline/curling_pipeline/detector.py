@@ -254,7 +254,7 @@ class MarkerDetectionNode(Node):
 
 
 
-    def detect_and_locate(self, image):
+    def detect_and_locate(self, image, mtx, dist):
         markers_in_img = []
         ids = []
         markers_2D_coords = []
@@ -274,7 +274,7 @@ class MarkerDetectionNode(Node):
                             for coord in coords:
                                 markers_2D_coords.append(coord)
                             ids.append(markerId[0])
-                            _, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, markerLength, self.mtx, self.dist) #in meters bc markerLength is in meter
+                            _, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, markerLength, mtx, dist) #in meters bc markerLength is in meter
                             distance = np.linalg.norm(tvecs)*1000
                             # print("Distance:", distance)
                             marker_global_coordinates = markers[str(markerId[0])][:3]
@@ -327,19 +327,22 @@ class MarkerDetectionNode(Node):
             return (None, None, None)
         
 
+    def undistort(self, image):
+        return cv2.undistort(image, self.mtx, self.dist, None, self.mtx)
         
 
     def process_image_callback(self, msg):
         image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        image = self.undistort(image)
+
         debug = image.copy()
-        # image = self.undistort(image)   
         # self.get_logger().info(f"Image received at {self.get_clock().now()}")
         blurred = cv2.GaussianBlur(image, (3, 3), 5)
         image = cv2.addWeighted(image, 1.5, blurred, -0.5, 0)
         
         debug = np.concatenate((debug, image), axis=1)
 
-        (x,y,z) = self.detect_and_locate(image)
+        (x,y,z) = self.detect_and_locate(image, self.mtx, np.zeros(5))
         self.get_logger().info(f"Robot located at: {x}, {y}, {z}")
         fig, ax = visualize_field(x, y)
         
@@ -353,13 +356,17 @@ class MarkerDetectionNode(Node):
             # Select the first duck
             goal, obstacles = select_duck(duck_locations, 0)
 
+            self.get_logger().info(f"Distance to the duck: {np.linalg.norm(np.array(start) - np.array(goal))}")
             # If the robot is close to the duck, don't move or find paths
-            if np.linalg.norm(np.array(start) - np.array(goal)) < 100:
+            if np.linalg.norm(np.array(start) - np.array(goal)) < 500:
+                
                 self.get_logger().info("Robot is close to the duck. Not moving.")
+                self.publisher.publish(String(data="stop"))
+                exit()
             else:
                 pathfinder = PathFinder(40, 20, A, B)
                 path_coordinates, debug_dict = pathfinder.find_path(start, goal, obstacles, distance_metric="euclidian", debug=True)
-                self.get_logger().debug(f"Path coordinates: {debug_dict}")
+                self.get_logger().info(f"Path coordinates: {debug_dict}")
                 message = String()
                 message.data = json.dumps(path_coordinates)
                 self.publisher.publish(message)

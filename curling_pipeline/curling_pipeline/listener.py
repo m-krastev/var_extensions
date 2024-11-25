@@ -23,12 +23,14 @@ class LineDetectionListener(Node):
 
     def listener_callback(self, msg):
         # This function is called whenever a message is received on the subscribed topic
-        self.get_logger().info(f"Received message: {msg.data}")
-        self.publisher.publish(Twist())
+        # self.get_logger().info(f"Received message: {msg.data}")
+        # self.publisher.publish(Twist())
 
         # Parse the message and do something with it
         msg = json.loads(msg.data)
         self.get_logger().info(f"Received message: {msg}")
+        if msg == "stop":
+            exit()
         self.follow_coordinates(msg)
 
     def follow_coordinates(self, coordinates: list[tuple[float, float]]):
