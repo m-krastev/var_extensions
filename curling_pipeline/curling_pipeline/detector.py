@@ -120,6 +120,8 @@ duck_locations = (
 class MarkerDetectionNode(Node):
     def __init__(self):
         super().__init__("line_detection_node")
+        self.detection_history = []
+
         self.subscription = self.create_subscription(
             CompressedImage, RAE_RIGHT_IMAGE_RAW_COMPRESSED_TOPIC, self.process_image_callback, 10
         )
@@ -173,7 +175,6 @@ class MarkerDetectionNode(Node):
         return (x1, y1), (x2, y2)
 
 
-
     def compute_triangulation(self, markers_in_img):
         pairs = []
         for i in range(len(markers_in_img)):
@@ -222,6 +223,7 @@ class MarkerDetectionNode(Node):
         else:
             return []
 
+
     def location_for_one_marker(self, x_A, y_A, z_A, x_robot_respect_to_marker, y_robot_respect_to_marker, one_dist):
         a = 1
         if y_robot_respect_to_marker == None: # We look for y_robot
@@ -251,7 +253,6 @@ class MarkerDetectionNode(Node):
             # print(y1,y2)
             # print("Everything is out of the field")
             return None
-
 
 
     def detect_and_locate(self, image, mtx, dist):
@@ -330,10 +331,20 @@ class MarkerDetectionNode(Node):
     def undistort(self, image):
         return cv2.undistort(image, self.mtx, self.dist, None, self.mtx)
         
-
+    
     def process_image_callback(self, msg):
         image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         image = self.undistort(image)
+
+        robot_detected = detect_robot(image)
+        self.detection_history.append(robot_detected)
+
+        if len(self.detection_history) > 3: #remove history > -3 timesteps
+            self.detection_history.pop(0)
+        
+        if all(self.detection_history):
+            self.get_logger().info("Robot detected for past 3 moves. Initiating dodge")
+            self.dodge()
 
         debug = image.copy()
         # self.get_logger().info(f"Image received at {self.get_clock().now()}")
@@ -399,7 +410,64 @@ class MarkerDetectionNode(Node):
     
 #  def undistort(self, image):
 
-        
+def detect_robot(image):
+    height, width, _ = image.shape
+    lower_quarter = image[7* height // 8 :, :] #crop to the lower quarter (to ignore ceiling lights)
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(lower_quarter, cv2.COLOR_BGR2GRAY)
+
+    # Enhance brightness (of the robot light)
+    bright = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+
+    # brightness thresholding
+    brightness_threshold = 48 #TODO better threshold?
+    _, mask = cv2.threshold(bright, brightness_threshold, 255, cv2.THRESH_BINARY)
+
+
+
+    # proportion black pixels
+    total_pixels = mask.size  # Total number of pixels
+    white_pixels = cv2.countNonZero(mask)  # non-zero (black) pixels
+    #print(mask)
+    black_pixels = total_pixels-white_pixels
+    black_proportion = black_pixels / total_pixels
+    print(black_proportion)
+
+    # Determine if the robot is detected
+    robot_detected = black_proportion > 0.18  # True if more than 18% of the mask is black
+
+    # Visualize the result
+    if robot_detected:
+        cv2.putText(
+            lower_quarter,
+            f"Robot Detected: {black_proportion*100:.2f}% black",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 255),
+            2,
+        )
+
+    # Combine the lower quarter back with the upper part for display
+    # output_image = np.vstack((image[: height // 8 * 7, :], lower_quarter))
+
+    return robot_detected
+
+
+def dodge(self):
+    # Publish a dodge command
+    twist_message = Twist()
+    twist_message.linear.x = 0.05 #slow/moderate speed
+    twist_message.angular.z = 0.3  # turn left
+    self.direction_publisher.publish(twist_message)
+    self.get_logger().info("Dodging!")
+    rclpy.spin_once(self, timeout_sec=0.5) #execute for 0.5 seconds
+    twist_message.linear.x = 0.05 #slow/moderate speed
+    twist_message.angular.z = -0.2  # turn right
+    rclpy.spin_once(self, timeout_sec=0.2) #execute for 0.5 seconds
+
+
 
 def main(args=None):
     rclpy.init(args=args)
