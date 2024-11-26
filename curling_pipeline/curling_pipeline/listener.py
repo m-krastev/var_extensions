@@ -13,12 +13,12 @@ class LineDetectionListener(Node):
 
         # Create a subscription to the topic where the publisher is publishing
         self.subscription = self.create_subscription(
-            String,  # Replace with the appropriate message type
-            OUTPUT_TOPIC,  # Replace with the actual topic name
-            self.listener_callback,
+            String,  # Message type
+            OUTPUT_TOPIC,  # Receives info from output topic
+            self.listener_callback, # When receives info, calls listener_callback
             1,  # Queue size (adjustable)
         )
-        self.publisher = self.create_publisher(Twist, CMD_VEL_TOPIC, 10)
+        self.publisher = self.create_publisher(Twist, CMD_VEL_TOPIC, 10) #Sends velocity commands 
         self.get_logger().info("Listener node has been initialized")
 
     def listener_callback(self, msg):
@@ -27,11 +27,11 @@ class LineDetectionListener(Node):
         # self.publisher.publish(Twist())
 
         # Parse the message and do something with it
-        msg = json.loads(msg.data)
+        msg = json.loads(msg.data) # Converts json-> python
         self.get_logger().info(f"Received message: {msg}")
-        if msg == "stop":
+        if msg == "stop": # If message is stop, the program finishes
             exit()
-        self.follow_coordinates(msg)
+        self.follow_coordinates(msg) # Otherwise, it calls follow_coordinates
 
     def follow_coordinates(self, coordinates: list[tuple[float, float]]):
         last_change = 0  # 0 for x, 1 for y; in which direction the robot moved last
@@ -39,37 +39,52 @@ class LineDetectionListener(Node):
             curr_x, curr_y = coordinates[i]
             prev_x, prev_y = coordinates[i - 1]
             # Check which one changed last
-            if last_change == 0:
-                if curr_x == prev_x:
-                    last_change = 1
-                    if curr_y > prev_y:
+            if last_change == 0: # Last thing u did was move in x (straight)
+                if curr_x == prev_x: # If now you dont need to move in x
+                    if curr_y > prev_y: # You need to increase your Y coordinate 
                         # up
+                        last_change = 1 # You say last was a change in y for the next 
                         direction = "right"
                     else:
                         # down
+                        last_change = -1 # You say last was a change in y for the next 
                         direction = "left"
-                else:
+                else: # If you need to change your x coordinate is bc you need to go straight
                     direction = "forward"
-            else:
-                if curr_y == prev_y:
-                    last_change = 0
-                    if curr_x > prev_x:
+
+            elif last_change == -1: # Last thing u did was turn left
+                if curr_y == prev_y: # If you need to keep moving to the goal
+                    last_change = 0 # You say last was a change in x for the next 
+                    if curr_x > prev_x: # To go back to straight, you turn right 
                         # right
-                        direction = "right"
+                        direction = "right" #You are looking to +Y, so to go to +X need to turn right
                     else:
                         # left
                         direction = "left"
-                else:
+                else: # You need to keep advancing in -Y
                     direction = "forward"
+
+            else: # last change = 1 bc u turned right 
+                if curr_y == prev_y: # If you need to keep moving to the goal
+                    last_change = 0 # You say last was a change in x for the next 
+                    if curr_x > prev_x: # To go back to straight, you turn right 
+                        # right
+                        direction = "left" #You are looking to +Y, so to go to +X need to turn left
+                    else:
+                        # left
+                        direction = "right"
+                else: # You need to keep advancing in +Y
+                    direction = "forward"
+
             twist = Twist()
             twist.linear.x = 1.0
             match direction:
                 case "forward":
                     pass
                 case "right":
-                    twist.angular.z = 0.6
-                case "left":
                     twist.angular.z = -0.6
+                case "left":
+                    twist.angular.z = 0.6
             self.publisher.publish(twist)
             time.sleep(0.5)
             self.get_logger().info(f"Move {direction} to {curr_x}, {curr_y}")
