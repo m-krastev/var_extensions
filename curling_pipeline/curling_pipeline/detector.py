@@ -109,11 +109,11 @@ markers = {
 
 
 duck_locations = (
-    (G, (B + H) / 2),
-    (G, (B - H) / 2),
-    (E, (B + F) / 2),
-    (E, (B - F) / 2),
-    (I, B / 2),
+    (G - A/2, (B/2) - (B + H) / 2),
+    (G - A/2, (B/2) - (B - H) / 2),
+    (E - A/2, (B/2) - (B + F) / 2),
+    (E - A/2, (B/2) - (B - F) / 2),
+    (I - A/2, (B/2) - B / 2),
 )
 
 
@@ -360,29 +360,36 @@ class MarkerDetectionNode(Node):
                 
         def select_duck(duck_locations, idx):
             return duck_locations[idx], duck_locations[:idx] + duck_locations[idx + 1 :]
-
-        if x is not None:
+        first_time = True
+        if x is not None and first_time:
             start = (x + A/2,y + B/2)
+            first_time = False
 
             # Select the first duck
-            goal, obstacles = select_duck(duck_locations, 0)
+            goal, obstacles = select_duck(duck_locations, 5)
 
             self.get_logger().info(f"Distance to the duck: {np.linalg.norm(np.array(start) - np.array(goal))}")
-            # If the robot is close to the duck, don't move or find paths
-            if np.linalg.norm(np.array(start) - np.array(goal)) < 500:
+            pathfinder = PathFinder(40, 20, A, B)
+            path_coordinates, debug_dict = pathfinder.find_path(start, goal, obstacles, distance_metric="euclidian", debug=True)
+            self.get_logger().info(f"Path coordinates: {debug_dict}")
+            message = String()
+            message.data = json.dumps(path_coordinates)
+            self.publisher.publish(message)
+            
+        # # If the robot is close to the duck, don't move or find paths
+        # if np.linalg.norm(np.array(start) - np.array(goal)) < 500:
+        #     self.get_logger().info("Robot is close to the duck. Not moving.")
+        #     self.publisher.publish(String(data="stop"))
+        #     exit()
+        # else:
+        #         pathfinder = PathFinder(40, 20, A, B)
+        #         path_coordinates, debug_dict = pathfinder.find_path(start, goal, obstacles, distance_metric="euclidian", debug=True)
+        #         self.get_logger().info(f"Path coordinates: {debug_dict}")
+        #         message = String()
+        #         message.data = json.dumps(path_coordinates)
+        #         self.publisher.publish(message)
                 
-                self.get_logger().info("Robot is close to the duck. Not moving.")
-                self.publisher.publish(String(data="stop"))
-                exit()
-            else:
-                pathfinder = PathFinder(40, 20, A, B)
-                path_coordinates, debug_dict = pathfinder.find_path(start, goal, obstacles, distance_metric="euclidian", debug=True)
-                self.get_logger().info(f"Path coordinates: {debug_dict}")
-                message = String()
-                message.data = json.dumps(path_coordinates)
-                self.publisher.publish(message)
-                
-                ax.scatter(*list(zip(*path_coordinates)), C / 2, "k", zorder=3)
+        #         ax.scatter(*list(zip(*path_coordinates)), C / 2, "k", zorder=3)
         
         # Step 2: Save the plot to an in-memory buffer
         buf = BytesIO()
@@ -543,7 +550,9 @@ def visualize_field(xrobot, yrobot):
 
     # Plot the ducks
     # For some reason hides the center point
-    ax.scatter(*list(zip(*duck_locations)), D, "yellow", zorder=2.5)
+    # ax.scatter(*list(zip(*duck_locations)), D, "yellow", zorder=2.5)
+    for duck in duck_locations:
+        ax.scatter(int(duck[0]+A/2),int(duck[1]+A/2), "yellow", zorder=2.5)
 
     # Robot position
     if xrobot is not None:
