@@ -163,3 +163,4 @@ cython_debug/
 install/
 log/
 debug/
+.DS_Store
