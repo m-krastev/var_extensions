@@ -419,7 +419,7 @@ class MarkerDetectionNode(Node):
 
     def detect_robot(self, image):
         height, width, _ = image.shape
-        lower_quarter = image[7* height // 8 :, :] #crop to the lower quarter (to ignore ceiling lights)
+        lower_quarter = image[6* height // 7 :, :] #crop to the lower quarter (to ignore ceiling lights)
 
         # Convert to grayscale
         gray = cv2.cvtColor(lower_quarter, cv2.COLOR_BGR2GRAY)
@@ -457,7 +457,7 @@ class MarkerDetectionNode(Node):
             )
 
         # Combine the lower quarter back with the upper part for display
-        # output_image = np.vstack((image[: height // 8 * 7, :], lower_quarter))
+        # output_image = np.vstack((image[: height // 7 * 6, :], lower_quarter))
 
         return robot_detected
 
