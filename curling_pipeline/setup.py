@@ -20,8 +20,8 @@ setup(
     # tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            f'marker = {package_name}.marker_detection_node:main',
-            f'line_listener = {package_name}.listener:main'
+            f'detector = {package_name}.detector:main',
+            f'listener = {package_name}.listener:main'
         ],
     },
 )

@@ -8,6 +8,7 @@ rm -rf build install
 echo "Building the project..."
 colcon build
 
+export ROS_DOMAIN_ID=5
 # Install the project
 echo "Installing the project..."
 source install/setup.sh
