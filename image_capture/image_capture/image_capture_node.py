@@ -39,6 +39,9 @@ class ImageCaptureNode(Node):
         os.makedirs(self.image_folder, exist_ok=True)
 
         if self.video_mode == "y":
+            frames_folder = os.path.join(self.image_folder, "frames")
+            os.makedirs(frames_folder, exist_ok=True)
+            
             video_filename = os.path.join(self.image_folder, "output_video_maze.mp4")
             self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             self.fps = 10 
@@ -67,6 +70,12 @@ class ImageCaptureNode(Node):
             self.cv_image = self.bridge.imgmsg_to_cv2(
                 msg, desired_encoding="bgr8"
             )  # convert ros2 image to OpenCV
+
+            if self.video_mode == "y":
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")[:-3]  # ms precision
+                frame_filename = os.path.join(self.image_folder, f"frames/frame_{timestamp}.jpg")
+                cv2.imwrite(frame_filename, self.cv_image)
+                self.get_logger().info(f"Saved frame as image: {frame_filename}")
 
             if self.video_mode == "y" and self.video_writer.isOpened():
                 self.video_writer.write(self.cv_image)  # Write the current frame to video
