@@ -34,7 +34,7 @@ class ImageCaptureNode(Node):
         # Folder name for output images
         self.start_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
         self.image_folder = (
-            f'images_{self.start_time}_{self.image_topic.lstrip("/").replace("/", "_")}'
+            f'{self.image_topic.lstrip("/").replace("/", "_")}_{self.start_time}'
         )
         os.makedirs(self.image_folder, exist_ok=True)
 
