@@ -11,8 +11,11 @@ from datetime import datetime
 
 
 class ImageCaptureNode(Node):
-    def __init__(self, camera_side, key_press_mode):
+    def __init__(self, camera_side, key_press_mode, video_mode):
         super().__init__("image_capture_node")
+
+        self.video_mode = video_mode
+        self.video_writer = None
 
         self.key_press_mode = key_press_mode
         if key_press_mode == "y":
@@ -35,6 +38,16 @@ class ImageCaptureNode(Node):
         )
         os.makedirs(self.image_folder, exist_ok=True)
 
+        if self.video_mode == "y":
+            video_filename = os.path.join(self.image_folder, "output_video_maze.mp4")
+            self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self.fps = 10 
+            self.frame_size = (1280, 800)  
+            self.video_writer = cv2.VideoWriter(
+                video_filename, self.fourcc, self.fps, self.frame_size
+            )
+            self.get_logger().info(f"Video recording to {video_filename} started.")
+
         # ros2 subscription to camera topic
         self.subscription = self.create_subscription(
             Image,
@@ -54,6 +67,9 @@ class ImageCaptureNode(Node):
             self.cv_image = self.bridge.imgmsg_to_cv2(
                 msg, desired_encoding="bgr8"
             )  # convert ros2 image to OpenCV
+
+            if self.video_mode == "y" and self.video_writer.isOpened():
+                self.video_writer.write(self.cv_image)  # Write the current frame to video
 
         except Exception as e:
             self.get_logger().error(f"Error processing image: {e}")
@@ -78,13 +94,24 @@ class ImageCaptureNode(Node):
             if self.cv_image is not None:
                 cv2.imshow("Image", self.cv_image)
 
-            if self.key_press_mode == "y":
+            if self.video_mode == 'y': #continue recording
+                if cv2.waitKey(1) & 0xFF == ord("q"):  # Quit recording with q
+                    self.get_logger().info("Exiting video recording mode...")
+                    break
+
+            elif self.key_press_mode == "y":
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("s"):
                     self.save_image()
             else:
                 self.save_image()
                 time.sleep(1)
+
+        if self.video_writer:
+            self.video_writer.release()  # video file is saved
+            self.get_logger().info("Video recording saved.")
+
+        cv2.destroyAllWindows()  # close OpenCV window
 
 
 def main(args=None):
@@ -114,7 +141,7 @@ def main(args=None):
 
     rclpy.init(args=unknown_args)
     node = ImageCaptureNode(
-        camera_side=parsed_args.camera, key_press_mode=parsed_args.key_press
+        camera_side=parsed_args.camera, key_press_mode=parsed_args.key_press, video_mode=parsed_args.video
     )
     # rclpy.spin(node)
     node.run()
