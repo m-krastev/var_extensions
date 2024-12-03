@@ -41,7 +41,7 @@ class ImageCaptureNode(Node):
         if self.video_mode == "y":
             frames_folder = os.path.join(self.image_folder, "frames")
             os.makedirs(frames_folder, exist_ok=True)
-            
+
             video_filename = os.path.join(self.image_folder, "output_video_maze.mp4")
             self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             self.fps = 10 
@@ -136,7 +136,7 @@ def main(args=None):
     parser.add_argument(
         "--key_press",
         choices=["y", "n"],
-        default="y",
+        default="n",
         help="'y' to only take photos upon key press - 'n' for automatically (1 per second).",
     )
     parser.add_argument(
