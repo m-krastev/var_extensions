@@ -1,0 +1,12 @@
+ssh root@192.168.197.55
+
+~/start_docker.sh 5
+
+# right camera, take photo upon pressing 's' only:
+ros2 run image_capture image_capture --key_press
+
+#left camera, take photo automatically (1 per sec):
+ros2 run image_capture image_capture ---camera left
+
+#record video - IMPORTANT press q to stop
+ros2 run image_capture image_capture --video
