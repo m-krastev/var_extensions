@@ -164,3 +164,4 @@ install/
 log/
 debug/
 .DS_Store
+*.jpg
